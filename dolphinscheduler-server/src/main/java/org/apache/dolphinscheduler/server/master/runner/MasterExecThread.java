@@ -16,10 +16,21 @@
  */
 package org.apache.dolphinscheduler.server.master.runner;
 
-import com.google.common.collect.Lists;
-import org.apache.commons.io.FileUtils;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_COMPLEMENT_DATA_END_DATE;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_COMPLEMENT_DATA_START_DATE;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_RECOVERY_START_NODE_STRING;
+import static org.apache.dolphinscheduler.common.Constants.CMDPARAM_START_NODE_NAMES;
+import static org.apache.dolphinscheduler.common.Constants.DEFAULT_WORKER_GROUP;
+import static org.apache.dolphinscheduler.common.Constants.SEC_2_MINUTES_TIME_UNIT;
+
 import org.apache.dolphinscheduler.common.Constants;
-import org.apache.dolphinscheduler.common.enums.*;
+import org.apache.dolphinscheduler.common.enums.CommandType;
+import org.apache.dolphinscheduler.common.enums.DependResult;
+import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
+import org.apache.dolphinscheduler.common.enums.FailureStrategy;
+import org.apache.dolphinscheduler.common.enums.Flag;
+import org.apache.dolphinscheduler.common.enums.Priority;
+import org.apache.dolphinscheduler.common.enums.TaskDependType;
 import org.apache.dolphinscheduler.common.graph.DAG;
 import org.apache.dolphinscheduler.common.model.TaskNode;
 import org.apache.dolphinscheduler.common.model.TaskNodeRelation;
@@ -27,7 +38,13 @@ import org.apache.dolphinscheduler.common.process.ProcessDag;
 import org.apache.dolphinscheduler.common.task.conditions.ConditionsParameters;
 import org.apache.dolphinscheduler.common.thread.Stopper;
 import org.apache.dolphinscheduler.common.thread.ThreadUtils;
-import org.apache.dolphinscheduler.common.utils.*;
+import org.apache.dolphinscheduler.common.utils.CollectionUtils;
+import org.apache.dolphinscheduler.common.utils.CommonUtils;
+import org.apache.dolphinscheduler.common.utils.DateUtils;
+import org.apache.dolphinscheduler.common.utils.JSONUtils;
+import org.apache.dolphinscheduler.common.utils.OSUtils;
+import org.apache.dolphinscheduler.common.utils.ParameterUtils;
+import org.apache.dolphinscheduler.common.utils.StringUtils;
 import org.apache.dolphinscheduler.dao.entity.ProcessInstance;
 import org.apache.dolphinscheduler.dao.entity.Schedule;
 import org.apache.dolphinscheduler.dao.entity.TaskInstance;
@@ -37,17 +54,26 @@ import org.apache.dolphinscheduler.server.master.config.MasterConfig;
 import org.apache.dolphinscheduler.server.utils.AlertManager;
 import org.apache.dolphinscheduler.service.process.ProcessService;
 import org.apache.dolphinscheduler.service.quartz.cron.CronUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
-import static org.apache.dolphinscheduler.common.Constants.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.Lists;
 
 /**
  * master exec thread,split dag
@@ -252,6 +278,9 @@ public class MasterExecThread implements Runnable {
         }
 
         while(Stopper.isRunning()){
+
+            logger.info("process {} start to complement {} data",
+                    processInstance.getId(), DateUtils.dateToString(scheduleDate));
             // prepare dag and other info
             prepareProcess();
 
@@ -266,13 +295,13 @@ public class MasterExecThread implements Runnable {
             // execute process ,waiting for end
             runProcess();
 
+            endProcess();
             // process instance failure ，no more complements
             if(!processInstance.getState().typeIsSuccess()){
                 logger.info("process {} state {}, complement not completely!",
                         processInstance.getId(), processInstance.getState());
                 break;
             }
-
             //  current process instance success ,next execute
             if(null == iterator){
                 // loop by day
@@ -291,9 +320,7 @@ public class MasterExecThread implements Runnable {
                 }
                 scheduleDate = iterator.next();
             }
-
-            logger.info("process {} start to complement {} data",
-                    processInstance.getId(), DateUtils.dateToString(scheduleDate));
+            // flow end
             // execute next process instance complement data
             processInstance.setScheduleTime(scheduleDate);
             if(cmdParam.containsKey(Constants.CMDPARAM_RECOVERY_START_NODE_STRING)){
@@ -301,23 +328,16 @@ public class MasterExecThread implements Runnable {
                 processInstance.setCommandParam(JSONUtils.toJsonString(cmdParam));
             }
 
-            List<TaskInstance> taskInstanceList = processService.findValidTaskListByProcessId(processInstance.getId());
-            for(TaskInstance taskInstance : taskInstanceList){
-                taskInstance.setFlag(Flag.NO);
-                processService.updateTaskInstance(taskInstance);
-            }
-            processInstance.setState(ExecutionStatus.RUNNING_EXEUTION);
+            processInstance.setState(ExecutionStatus.RUNNING_EXECUTION);
             processInstance.setGlobalParams(ParameterUtils.curingGlobalParams(
                     processInstance.getProcessDefinition().getGlobalParamMap(),
                     processInstance.getProcessDefinition().getGlobalParamList(),
                     CommandType.COMPLEMENT_DATA, processInstance.getScheduleTime()));
-
+            processInstance.setId(0);
+            processInstance.setStartTime(new Date());
+            processInstance.setEndTime(null);
             processService.saveProcessInstance(processInstance);
         }
-
-        // flow end
-        endProcess();
-
     }
 
 
@@ -476,9 +496,6 @@ public class MasterExecThread implements Runnable {
             // task instance whether alert
             taskInstance.setAlertFlag(Flag.NO);
 
-            // task instance start time
-            taskInstance.setStartTime(new Date());
-
             // task instance flag
             taskInstance.setFlag(Flag.YES);
 
@@ -507,6 +524,8 @@ public class MasterExecThread implements Runnable {
                 taskInstance.setWorkerGroup(taskWorkerGroup);
             }
 
+            // delay execution time
+            taskInstance.setDelayTime(taskNode.getDelayTime());
         }
         return taskInstance;
     }
@@ -725,13 +744,14 @@ public class MasterExecThread implements Runnable {
      * @return ExecutionStatus
      */
     private ExecutionStatus runningState(ExecutionStatus state){
-        if(state == ExecutionStatus.READY_STOP ||
-                state == ExecutionStatus.READY_PAUSE ||
-                state == ExecutionStatus.WAITTING_THREAD){
+        if (state == ExecutionStatus.READY_STOP
+                || state == ExecutionStatus.READY_PAUSE
+                || state == ExecutionStatus.WAITTING_THREAD
+                || state == ExecutionStatus.DELAY_EXECUTION) {
             // if the running task is not completed, the state remains unchanged
             return state;
         }else{
-            return ExecutionStatus.RUNNING_EXEUTION;
+            return ExecutionStatus.RUNNING_EXECUTION;
         }
     }
 
@@ -808,7 +828,7 @@ public class MasterExecThread implements Runnable {
         ProcessInstance instance = processService.findProcessInstanceById(processInstance.getId());
         ExecutionStatus state = instance.getState();
 
-        if(activeTaskNode.size() > 0 || retryTaskExists()){
+        if(activeTaskNode.size() > 0 || hasRetryTaskInStandBy()){
             // active task and retry task exists
             return runningState(state);
         }
@@ -841,11 +861,11 @@ public class MasterExecThread implements Runnable {
         }
 
         // success
-        if(state == ExecutionStatus.RUNNING_EXEUTION){
+        if(state == ExecutionStatus.RUNNING_EXECUTION){
             List<TaskInstance> killTasks = getCompleteTaskByState(ExecutionStatus.KILL);
             if(readyToSubmitTaskList.size() > 0){
                 //tasks currently pending submission, no retries, indicating that depend is waiting to complete
-                return ExecutionStatus.RUNNING_EXEUTION;
+                return ExecutionStatus.RUNNING_EXECUTION;
             }else if(CollectionUtils.isNotEmpty(killTasks)){
                 // tasks maybe killed manually
                 return ExecutionStatus.FAILURE;
@@ -856,24 +876,6 @@ public class MasterExecThread implements Runnable {
         }
 
         return state;
-    }
-
-    /**
-     * whether standby task list have retry tasks
-     * @return
-     */
-    private boolean retryTaskExists() {
-
-        boolean result = false;
-
-        for(String taskName : readyToSubmitTaskList.keySet()){
-            TaskInstance task = readyToSubmitTaskList.get(taskName);
-            if(task.getState().typeIsFailure()){
-                result = true;
-                break;
-            }
-        }
-        return result;
     }
 
     /**
@@ -1050,6 +1052,7 @@ public class MasterExecThread implements Runnable {
                 Thread.sleep(Constants.SLEEP_TIME_MILLIS);
             } catch (InterruptedException e) {
                 logger.error(e.getMessage(),e);
+                Thread.currentThread().interrupt();
             }
             updateProcessInstanceState();
         }
