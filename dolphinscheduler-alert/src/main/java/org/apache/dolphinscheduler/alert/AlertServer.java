@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.dolphinscheduler.alert;
 
 import org.apache.dolphinscheduler.alert.plugin.EmailAlertPlugin;
@@ -25,34 +26,30 @@ import org.apache.dolphinscheduler.common.thread.Stopper;
 import org.apache.dolphinscheduler.dao.AlertDao;
 import org.apache.dolphinscheduler.dao.DaoFactory;
 import org.apache.dolphinscheduler.dao.entity.Alert;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-/**
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/* *
  * alert of start
  */
 public class AlertServer {
-    private static final Logger logger = LoggerFactory.getLogger(AlertServer.class);
+  private static final Logger logger = LoggerFactory.getLogger(AlertServer.class);
+  private static final String[] whitePrefixes = new String[]{"org.apache.dolphinscheduler.plugin.utils."};
+  private static final String[] excludePrefixes = new String[]{
+    "org.apache.dolphinscheduler.plugin.",
+    "ch.qos.logback.",
+    "org.slf4j."
+    };
+    private static AlertServer instance;
     /**
      * Alert Dao
      */
     private AlertDao alertDao = DaoFactory.getDaoInstance(AlertDao.class);
-
     private AlertSender alertSender;
-
-    private static AlertServer instance;
-
     private FilePluginManager alertPluginManager;
-
-    private static final String[] whitePrefixes = new String[]{"org.apache.dolphinscheduler.plugin.utils."};
-
-    private static final String[] excludePrefixes = new String[]{
-            "org.apache.dolphinscheduler.plugin.",
-            "ch.qos.logback.",
-            "org.slf4j."
-    };
 
     public AlertServer() {
         alertPluginManager =
@@ -68,6 +65,11 @@ public class AlertServer {
         return instance;
     }
 
+    public static void main(String[] args) {
+        AlertServer alertServer = AlertServer.getInstance();
+        alertServer.start();
+    }
+
     public void start() {
         logger.info("alert server ready start ");
         while (Stopper.isRunning()) {
@@ -81,12 +83,6 @@ public class AlertServer {
             alertSender = new AlertSender(alerts, alertDao, alertPluginManager);
             alertSender.run();
         }
-    }
-
-
-    public static void main(String[] args) {
-        AlertServer alertServer = AlertServer.getInstance();
-        alertServer.start();
     }
 
 }

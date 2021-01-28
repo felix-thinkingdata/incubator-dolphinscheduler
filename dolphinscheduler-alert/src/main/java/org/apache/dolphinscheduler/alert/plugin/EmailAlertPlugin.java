@@ -18,32 +18,39 @@ package org.apache.dolphinscheduler.alert.plugin;
 
 import org.apache.dolphinscheduler.alert.manager.EmailManager;
 import org.apache.dolphinscheduler.alert.manager.EnterpriseWeChatManager;
+import org.apache.dolphinscheduler.alert.manager.FeishuManager;
 import org.apache.dolphinscheduler.alert.utils.Constants;
 import org.apache.dolphinscheduler.alert.utils.EnterpriseWeChatUtils;
+import org.apache.dolphinscheduler.alert.utils.SendFeishuUtil;
 import org.apache.dolphinscheduler.common.utils.CollectionUtils;
 import org.apache.dolphinscheduler.common.utils.StringUtils;
 import org.apache.dolphinscheduler.plugin.api.AlertPlugin;
 import org.apache.dolphinscheduler.plugin.model.AlertData;
 import org.apache.dolphinscheduler.plugin.model.AlertInfo;
 import org.apache.dolphinscheduler.plugin.model.PluginName;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-
 /**
  * EmailAlertPlugin
- *
+ * <p>
  * This plugin is a default plugin, and mix up email and enterprise wechat, because adapt with former alert behavior
  */
 public class EmailAlertPlugin implements AlertPlugin {
 
     private static final Logger logger = LoggerFactory.getLogger(EmailAlertPlugin.class);
-
-    private PluginName pluginName;
-
     private static final EmailManager emailManager = new EmailManager();
     private static final EnterpriseWeChatManager weChatManager = new EnterpriseWeChatManager();
+    private static final FeishuManager feishuManager = new FeishuManager();
+    private PluginName pluginName;
+
 
     public EmailAlertPlugin() {
         this.pluginName = new PluginName();
@@ -121,7 +128,14 @@ public class EmailAlertPlugin implements AlertPlugin {
                     logger.error(e.getMessage(), e);
                 }
             }
-
+            if(SendFeishuUtil.isEnable()){
+                logger.info("Fei shu is enable!");
+                try {
+                    feishuManager.send(info);
+                } catch (Exception e) {
+                    logger.error(e.getMessage(), e);
+                }
+            }
         } else {
             retMaps.put(Constants.MESSAGE, "alert send error.");
             logger.info("alert send error : {}", retMaps.get(Constants.MESSAGE));
