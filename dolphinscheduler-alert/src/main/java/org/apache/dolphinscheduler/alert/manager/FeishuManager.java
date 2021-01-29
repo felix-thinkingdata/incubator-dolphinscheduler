@@ -22,10 +22,9 @@ public class FeishuManager {
         String feiShuWebHook = SendFeishuUtil.FEI_SHU_WEB_HOOK;
 
         AlertData alertData = alertInfo.getAlertData();
-        String result = "主题：" + alertData.getTitle() + ",\n 内容：" + alertData.getContent();
 
         try {
-            SendFeishuUtil.sendMsg(feiShuWebHook, result);
+            SendFeishuUtil.sendMsg(feiShuWebHook, SendFeishuUtil.markdownText(alertData.getTitle(),alertData.getContent()));
         } catch (IOException e) {
             logger.error(e.getMessage(), e);
         }
