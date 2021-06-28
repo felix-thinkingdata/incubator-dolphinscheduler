@@ -133,7 +133,7 @@ public class Constants {
 
     public static final int ALERT_SCAN_INTERVAL = 5000;
 
-    public static final String MARKDOWN_QUOTE = ">";
+    public static final String MARKDOWN_QUOTE = "  ";
 
     public static final String MARKDOWN_ENTER = "\n";
 

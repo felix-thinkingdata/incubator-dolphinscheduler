@@ -1,6 +1,8 @@
 package org.apache.dolphinscheduler.alert.utils;
 
 
+import org.apache.dolphinscheduler.common.utils.StringUtils;
+
 import org.apache.http.HttpStatus;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
@@ -10,6 +12,7 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,14 +60,15 @@ public class SendFeishuUtil {
 
     /**
      * get Enterprise WeChat is enable
+     *
      * @return isEnable
      */
-    public static boolean isEnable(){
+    public static boolean isEnable() {
         Boolean isEnable = null;
         try {
             isEnable = PropertyUtils.getBoolean(Constants.FEI_SHU_ENABLE);
         } catch (Exception e) {
-            logger.error(e.getMessage(),e);
+            logger.error(e.getMessage(), e);
         }
         if (isEnable == null) {
             return false;
@@ -72,6 +76,37 @@ public class SendFeishuUtil {
         return isEnable;
     }
 
+
+    /**
+     * convert text to markdown style
+     *
+     * @param title the title
+     * @param content the content
+     * @return markdown text
+     */
+    public static String markdownText(String title, String content) {
+        if (StringUtils.isNotEmpty(content)) {
+            List<String> list;
+            try {
+                list = JSONUtils.toList(content, String.class);
+            } catch (Exception e) {
+                logger.error("json format exception", e);
+                return null;
+            }
+
+            StringBuilder contents = new StringBuilder(100);
+            contents.append(String.format("`%s`%n", title));
+            for (String str : list) {
+                contents.append(Constants.MARKDOWN_QUOTE);
+                contents.append(str);
+                contents.append(Constants.MARKDOWN_ENTER);
+            }
+
+            return contents.toString();
+
+        }
+        return null;
+    }
 
 
 }
