@@ -18,8 +18,10 @@ package org.apache.dolphinscheduler.alert.plugin;
 
 import org.apache.dolphinscheduler.alert.manager.EmailManager;
 import org.apache.dolphinscheduler.alert.manager.EnterpriseWeChatManager;
+import org.apache.dolphinscheduler.alert.manager.FeishuManager;
 import org.apache.dolphinscheduler.alert.utils.Constants;
 import org.apache.dolphinscheduler.alert.utils.EnterpriseWeChatUtils;
+import org.apache.dolphinscheduler.alert.utils.SendFeishuUtil;
 import org.apache.dolphinscheduler.common.utils.CollectionUtils;
 import org.apache.dolphinscheduler.common.utils.StringUtils;
 import org.apache.dolphinscheduler.plugin.api.AlertPlugin;
@@ -38,17 +40,17 @@ import org.slf4j.LoggerFactory;
 
 /**
  * EmailAlertPlugin
- *
+ * <p>
  * This plugin is a default plugin, and mix up email and enterprise wechat, because adapt with former alert behavior
  */
 public class EmailAlertPlugin implements AlertPlugin {
 
     private static final Logger logger = LoggerFactory.getLogger(EmailAlertPlugin.class);
-
-    private PluginName pluginName;
-
     private static final EmailManager emailManager = new EmailManager();
     private static final EnterpriseWeChatManager weChatManager = new EnterpriseWeChatManager();
+    private static final FeishuManager feishuManager = new FeishuManager();
+    private PluginName pluginName;
+
 
     public EmailAlertPlugin() {
         this.pluginName = new PluginName();
@@ -118,6 +120,14 @@ public class EmailAlertPlugin implements AlertPlugin {
                 try {
                     String token = EnterpriseWeChatUtils.getToken();
                     weChatManager.send(info, token);
+                } catch (Exception e) {
+                    logger.error(e.getMessage(), e);
+                }
+            }
+            if(SendFeishuUtil.isEnable()){
+                logger.info("Fei shu is enable!");
+                try {
+                    feishuManager.send(info);
                 } catch (Exception e) {
                     logger.error(e.getMessage(), e);
                 }
