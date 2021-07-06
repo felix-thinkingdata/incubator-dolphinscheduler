@@ -17,9 +17,12 @@
 
 package org.apache.dolphinscheduler.server.master.consumer;
 
-import com.alibaba.fastjson.JSONObject;
 import org.apache.dolphinscheduler.common.Constants;
-import org.apache.dolphinscheduler.common.enums.*;
+import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
+import org.apache.dolphinscheduler.common.enums.ResourceType;
+import org.apache.dolphinscheduler.common.enums.SqoopJobType;
+import org.apache.dolphinscheduler.common.enums.TaskType;
+import org.apache.dolphinscheduler.common.enums.UdfType;
 import org.apache.dolphinscheduler.common.model.TaskNode;
 import org.apache.dolphinscheduler.common.process.ResourceInfo;
 import org.apache.dolphinscheduler.common.task.AbstractParameters;
@@ -30,10 +33,22 @@ import org.apache.dolphinscheduler.common.task.sqoop.SqoopParameters;
 import org.apache.dolphinscheduler.common.task.sqoop.sources.SourceMysqlParameter;
 import org.apache.dolphinscheduler.common.task.sqoop.targets.TargetMysqlParameter;
 import org.apache.dolphinscheduler.common.thread.Stopper;
-import org.apache.dolphinscheduler.common.utils.*;
-import org.apache.dolphinscheduler.dao.entity.*;
+import org.apache.dolphinscheduler.common.utils.CollectionUtils;
+import org.apache.dolphinscheduler.common.utils.EnumUtils;
+import org.apache.dolphinscheduler.common.utils.JSONUtils;
+import org.apache.dolphinscheduler.common.utils.StringUtils;
+import org.apache.dolphinscheduler.common.utils.TaskParametersUtils;
+import org.apache.dolphinscheduler.dao.entity.DataSource;
+import org.apache.dolphinscheduler.dao.entity.Resource;
+import org.apache.dolphinscheduler.dao.entity.TaskInstance;
+import org.apache.dolphinscheduler.dao.entity.Tenant;
+import org.apache.dolphinscheduler.dao.entity.UdfFunc;
 import org.apache.dolphinscheduler.server.builder.TaskExecutionContextBuilder;
-import org.apache.dolphinscheduler.server.entity.*;
+import org.apache.dolphinscheduler.server.entity.DataxTaskExecutionContext;
+import org.apache.dolphinscheduler.server.entity.ProcedureTaskExecutionContext;
+import org.apache.dolphinscheduler.server.entity.SQLTaskExecutionContext;
+import org.apache.dolphinscheduler.server.entity.SqoopTaskExecutionContext;
+import org.apache.dolphinscheduler.server.entity.TaskExecutionContext;
 import org.apache.dolphinscheduler.server.master.config.MasterConfig;
 import org.apache.dolphinscheduler.server.master.dispatch.ExecutorDispatcher;
 import org.apache.dolphinscheduler.server.master.dispatch.context.ExecutionContext;
@@ -42,16 +57,24 @@ import org.apache.dolphinscheduler.server.master.dispatch.exceptions.ExecuteExce
 import org.apache.dolphinscheduler.service.process.ProcessService;
 import org.apache.dolphinscheduler.service.queue.TaskPriority;
 import org.apache.dolphinscheduler.service.queue.TaskPriorityQueue;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import javax.annotation.PostConstruct;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import com.alibaba.fastjson.JSONObject;
 
 /**
  * TaskUpdateQueue consumer
@@ -102,15 +125,19 @@ public class TaskPriorityQueueConsumer extends Thread{
             try {
                 int fetchTaskNum = masterConfig.getMasterDispatchTaskNumber();
                 failedDispatchTasks.clear();
-                for(int i = 0; i < fetchTaskNum; i++){
-                    if(taskPriorityQueue.size() <= 0){
+                for (int i = 0; i < fetchTaskNum; i++) {
+                    if (taskPriorityQueue.size() <= 0) {
+                        logger.info("当前master 的queue中任务数为: 0");
                         Thread.sleep(Constants.SLEEP_TIME_MILLIS);
                         continue;
+                    } else {
+                        logger.info("当前master 的queue中任务数为:" + taskPriorityQueue.size());
                     }
+
                     // if not task , blocking here
                     TaskPriority taskPriority = taskPriorityQueue.take();
                     boolean dispatchResult = dispatch(taskPriority);
-                    if(!dispatchResult){
+                    if (!dispatchResult) {
                         failedDispatchTasks.add(taskPriority);
                     }
                 }
@@ -145,10 +172,13 @@ public class TaskPriorityQueueConsumer extends Thread{
             ExecutionContext executionContext = new ExecutionContext(context.toCommand(), ExecutorType.WORKER, context.getWorkerGroup());
 
             if (taskInstanceIsFinalState(taskInstanceId)){
+                logger.info(" task" + taskInstanceId + "finish, ignore this task, there is no need to dispatch anymore");
                 // when task finish, ignore this task, there is no need to dispatch anymore
                 return true;
             }else{
+                logger.info("master 向worker发送任务 开始");
                 result = dispatcher.dispatch(executionContext);
+                logger.info("master 向worker发送任务 结束");
             }
         } catch (ExecuteException e) {
             logger.error("dispatch error: {}",e.getMessage());

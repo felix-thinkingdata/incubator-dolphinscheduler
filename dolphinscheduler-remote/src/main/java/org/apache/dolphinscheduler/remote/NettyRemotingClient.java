@@ -305,9 +305,11 @@ public class NettyRemotingClient {
             throw new RemotingException(String.format("connect to : %s fail", host));
         }
         try {
+            logger.info("send command : {} , to : {} start.", command, host.getAddress());
             ChannelFuture future = channel.writeAndFlush(command).await();
+            logger.info("send command : {} , to : {} end.", command, host.getAddress());
             if (future.isSuccess()) {
-                logger.debug("send command : {} , to : {} successfully.", command, host.getAddress());
+                logger.info("send command : {} , to : {} successfully.", command, host.getAddress());
             } else {
                 String msg = String.format("send command : %s , to :%s failed", command, host.getAddress());
                 logger.error(msg, future.cause());
